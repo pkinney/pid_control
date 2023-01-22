@@ -33,7 +33,7 @@ defmodule PIDControl.MixProject do
 
   defp description do
     """
-    Implementation of a time-domain discrete PID Controller 
+    Implementation of a discrete PID Controller 
     """
   end
 
