@@ -1,5 +1,67 @@
 defmodule PIDControl do
   @moduledoc """
+  A discrete implementation of a [PID controller](https://en.wikipedia.org/wiki/PID_controller) for building
+  closed-loop control into embedded systems.
+
+  ## Usage
+
+  The `PIDControl.new/1` function returns an initialized `PIDControl` struct with the given configuration:
+
+  ```elixir
+  iex> pid = PIDControl.new(kp: 0.5, kd: 0.2, ki: 0.03)
+  %PIDControl{...}
+  ```
+
+  Calling `PIDControl.step/3` performs one discrete cycle of the PID loop for the given `set_point` and `measurement`
+  values.  The new PIDControl state is returned and the output can be accessed via the `output` key in the struct.
+
+  ```elixir
+  iex> pid = PIDControl.step(pid, 0.3, 0.312)
+  %PIDControl{
+  output: -0.11448221
+  #...
+  }
+  ```
+
+  The `step` function can be called in each successive input-output cycle of the underling sensor/actuator.
+
+  ## Example 
+
+  ```elixir
+  defmodule Controller do
+  use GenServer
+  # ...
+
+  def init(_) do
+    Sensor.subcribe()
+    pid = PIDControl.new(kp: 0.5, kd: 0.2, ki: 0.03)
+    {:ok, pid}
+  end
+
+  def handle_info({:sensor, measurment}, pid) do
+    pid = PIDControl.step(pid, @set_point, measurment)
+    Actuator.command(pid.output)
+    {:noreply, pid}
+  end
+  end
+  ```
+
+  ## Telemetry
+
+  If `telemetry` is set to `true`, telemetry for the PID state will be emitted each time the `step` function is called.
+  By default, the event name will be `[pid_control]` and will contain the following measurements.
+
+  * `set_point` - Current set point
+  * `measurement` - Most recent measurement
+  * `error` - Current error that is being fed to the PID
+  * `p` - Proportional component of the output
+  * `i` - Integral component of the output
+  * `d` - Derivative component of the output
+  * `t` - The time value used for the step function.  This will always be the configured value `t` unless `use_system_t` is set to `true`.
+  * `output` - Most recent output (which will be the sum of `p`, `i`, and `d` values)
+
+  This is really useful for manual tuning when combined with something like `PheonixLiveDashboard`.
+
   """
   defstruct p: 0.0,
             i: 0.0,

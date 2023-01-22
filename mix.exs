@@ -26,7 +26,8 @@ defmodule PIDControl.MixProject do
     [
       {:telemetry, "~> 1.0"},
       {:credo, "~> 1.6.5", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.0", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.19", only: :dev}
     ]
   end
 
