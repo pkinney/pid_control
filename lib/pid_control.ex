@@ -1,4 +1,6 @@
 defmodule PIDControl do
+  @moduledoc """
+  """
   defstruct p: 0.0,
             i: 0.0,
             d: 0.0,
@@ -19,8 +21,9 @@ defmodule PIDControl do
     output_min: -1.0,
     output_max: 1.0,
     use_system_t: false,
+    zero_d_on_set_point_change: false,
     telemetry: false,
-    telemetry_event_name: [:pid_controller]
+    telemetry_event_name: [:pid_control]
   }
 
   @type config() :: %{
@@ -32,6 +35,7 @@ defmodule PIDControl do
           output_min: float(),
           output_max: float(),
           use_system_t: boolean(),
+          zero_d_on_set_point_change: boolean(),
           telemetry: boolean(),
           telemetry_event_name: list(atom())
         }
@@ -48,10 +52,6 @@ defmodule PIDControl do
           config: config()
         }
 
-  @moduledoc """
-  Documentation for `PIDControl`.
-  """
-
   @doc """
   Creates a new PID controller.
 
@@ -61,7 +61,7 @@ defmodule PIDControl do
   * **`tau`** - Low-pass filter parameter for the calculated `d` term.  A value of `1` will bypass the filtering.
     A value between `0` and `1` will filter out high-frequency noise in the derivative term.
   * **`t`** - Time factor for calculating the `i` and `d` term of the PID.  A value of `1` will ignore
-    any time parameters and treat each `step` as a single time unit.  A value of `0.1` (for example),
+    any time parameters and treat each `step` as a single time unit.  A value of `0.1`, for example,
     will treat each `step` as a tenth of a time unit.  If `use_system_t` is set to `true`, this value
     is ignored in favor of the system time (in seconds) between calls to `step`.
   * **`output_min` and `output_max`** - Minimum and maximum values that will be output from the PID. Any other
@@ -70,10 +70,15 @@ defmodule PIDControl do
   * **`use_system_t`** - When set to `true`, the time used to calculate `d` and `i` terms of the PID will be
     derived from the measured time since the last call to `step` (using `System.monotonic_time/0`). When set
     to false, the configured value of `t` will be used. Defaults to `false`.
+  * **`zero_d_on_set_point_change`** - When the set point changes rapidly, the d-term will suddenly spike, causing
+    a sudden change in the PID output. Setting `tau` to a lower value will lessen this effect, but setting 
+    `zero_d_on_set_point_change` will force the d-term to zero for the step when the set_point changes.  This is 
+    useful for situations when the set point changes suddenly and occasionally, as opposed to situations where 
+    the set_point is gradually changes (as when following a profile curve).  Defaults to `false`.
   * **`telemetry`** - When set to `true`, the PID will automatically emit its own telemetry after each `step`.
     Defaults to `false`.
   * **`telemetry_prefix`** - If `telemetry` is set to `true`, this value defines the name that the event is published
-    under.  Defaults to `[:pid_controller]`
+    under.  Defaults to `[:pid_control]`
   """
   @spec new(keyword()) :: t()
   def new(config \\ []) do
@@ -84,6 +89,10 @@ defmodule PIDControl do
     pid |> Map.put(:config, Map.merge(pid.config, Enum.into(config, %{})))
   end
 
+  @doc """
+  Performs one step in the control loop.  Given the set point and measurement, the PID state
+  is advanced and the output of the PID is set to the `output` field of the `PIDControl` struct.
+  """
   @spec step(t(), float(), float()) :: t()
   def step(pid, set_point, measurement) do
     time = System.monotonic_time()
@@ -101,16 +110,15 @@ defmodule PIDControl do
     p = pid.config.kp * e0
 
     # D term is linear on the change in error, passed through a low-pass filter
-    # a `tau` term of 1.0 will bypass the filter
     last_error =
-      if pid.e0 == nil do
-        e0
-      else
-        pid.e0
+      cond do
+        pid.e0 == nil -> e0
+        set_point != pid.set_point_prev and pid.config.zero_d_on_set_point_change -> e0
+        true -> pid.e0
       end
 
-    d_raw = pid.config.kd * (e0 - last_error)
-    d = pid.d + pid.config.tau * (d_raw - pid.d) * t
+    d_raw = pid.config.kd * (e0 - last_error) / max(t, 0.001)
+    d = pid.d + pid.config.tau * (d_raw - pid.d)
 
     # I term is linear to the sum of all previous errors, with anti-windup
     i_raw = pid.i + pid.config.ki * e0 * t
